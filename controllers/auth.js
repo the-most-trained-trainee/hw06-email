@@ -147,6 +147,6 @@ module.exports = {
   current: ctrlWrapper(current),
   logout: ctrlWrapper(logout),
   updateAvatar: ctrlWrapper(updateAvatar),
-  verifyEmail,
-  resendVerification
+  verifyEmail: ctrlWrapper(verifyEmail),
+  resendVerification: ctrlWrapper(resendVerification)
 };
