@@ -3,11 +3,11 @@ const fs = require('fs/promises');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const gravatar = require('gravatar');
-const { ctrlWrapper } = require('../helpers');
+const { ctrlWrapper, sendEmail } = require('../helpers');
 const { User } = require('../models/user');
 const { Conflict, Unauthorized } = require('http-errors');
 const Jimp = require("jimp");
-
+const { v4: uuidv4 } = require('uuid');
 
 const register = async (req, res) => {
   const { email, password, subscription = "starter" } = req.body;
@@ -16,11 +16,17 @@ const register = async (req, res) => {
     throw new Conflict('Email in use');
   }
   const avatar = gravatar.url(email, { protocol: 'https', s: '100' });
-
   const hashPassword = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
+  const verificationToken = uuidv4();
   const result = await User.create({
-    email, subscription, password: hashPassword, avatarURL: avatar
+    email, subscription, password: hashPassword, avatarURL: avatar, verificationToken
   });
+  const letter = {
+    to: email,
+    subject: 'Registration Confirmation',
+    html: `<a href="http://localhost:3000/api/auth/verify/${verificationToken}" target="_blank">Please follow the link to complete your registration</a>`
+  };
+  await sendEmail(letter);
   res.status(201).json({
     status: 'success',
     code: 201,
@@ -41,6 +47,9 @@ const login = async (req, res) => {
   const passCompare = bcrypt.compareSync(password, user.password);
   if (!passCompare) {
     throw new Unauthorized('Email or password is wrong');
+  };
+  if (!user.verify) {
+    throw new Error(400, 'Email is not verified');
   };
   const payload = {
     id: user._id,
@@ -102,4 +111,42 @@ const updateAvatar = async (req, res) => {
   }
 }
 
-module.exports = { register: ctrlWrapper(register), login: ctrlWrapper(login), current: ctrlWrapper(current), logout: ctrlWrapper(logout), updateAvatar: ctrlWrapper(updateAvatar) };
+const verifyEmail = async (req, res) => {
+  const { verificationToken } = req.params;
+  const user = await User.findOne({ verificationToken })
+  if (!user) {
+    throw new Error(404, 'Error! No such user!');
+  }
+  await User.findByIdAndUpdate(user._id, { verify: true, verificationToken: '' });
+  res.json({ messsage: 'Email verification completed' });
+}
+
+const resendVerification = async (req, res) => {
+  console.log('resend works')
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw new Error(404, 'Error! No such user!');
+  }
+  if (user.verify) {
+    throw new Error(400, 'Error! User is already verified!');
+  }
+
+  const letter = {
+    to: email,
+    subject: 'Registration Confirmation',
+    html: `<a href="http://localhost:3000/api/auth/verify/${user.verificationToken}" target="_blank">Please follow the link to complete your registration</a>`
+  };
+  await sendEmail(letter);
+  res.json({ messsage: 'Email verification letter has been resent' })
+}
+
+module.exports = {
+  register: ctrlWrapper(register),
+  login: ctrlWrapper(login),
+  current: ctrlWrapper(current),
+  logout: ctrlWrapper(logout),
+  updateAvatar: ctrlWrapper(updateAvatar),
+  verifyEmail,
+  resendVerification
+};
